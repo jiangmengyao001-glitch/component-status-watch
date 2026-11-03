@@ -40,3 +40,10 @@ test('abnormal notification uses requested account and component fields',()=>{
   assert.equal(formatEvent({kind:'组件状态变化',account:'synthetic-account',id:'synthetic-id',status:'异常'}),'老师，这个星图账户下落地页组件卡审，辛苦捞回：\n星图账户ID：synthetic-account\n组件ID：synthetic-id');
   assert.ok(!formatEvent({kind:'组件状态变化',account:'synthetic-account',id:'synthetic-id',status:'有效'}).includes('辛苦捞回'));
 });
+
+test('abnormal alerts include a real mention, recovery stays quiet for mentions',()=>{
+ const event={kind:'组件状态变化',account:'synthetic-account',id:'synthetic-id',status:'异常'};
+ assert.ok(formatEvent(event,'ou_synthetic').startsWith('<at user_id="ou_synthetic"></at>\n老师'));
+ assert.ok(!formatEvent({...event,status:'有效'},'ou_synthetic').includes('<at'));
+ assert.ok(formatEvent({...event,kind:'两次完整查询均未找到组件',status:'有效'},'ou_synthetic').includes('<at'));
+});
