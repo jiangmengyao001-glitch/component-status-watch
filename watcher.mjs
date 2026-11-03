@@ -94,8 +94,15 @@ async function configureBot() {
   await cli(['config','init','--app-id',process.env.LARK_APP_ID,'--app-secret-stdin','--brand','feishu'],process.env.LARK_APP_SECRET,false);
 }
 
+export function formatEvent(event) {
+  if(event.id && (event.kind==='首次发现异常'||event.kind==='组件状态变化') && event.status!=='有效') {
+    return `老师，这个星图账户下落地页组件卡审，辛苦捞回：\n星图账户ID：${event.account}\n组件ID：${event.id}`;
+  }
+  return '【星图组件监测·TO DO测试】\n'+Object.entries(event).map(([k,v])=>`${k}：${v}`).join('\n')+'\n'+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'（北京时间）';
+}
+
 async function notify(event, revision) {
-  const text='【星图组件监测·TO DO测试】\n'+Object.entries(event).map(([k,v])=>`${k}：${v}`).join('\n')+'\n'+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'（北京时间）';
+  const text=formatEvent(event);
   const result=await cli(['im','+messages-send','--chat-id',process.env.NOTIFICATION_CHAT_ID,'--as','bot','--text','-','--idempotency-key',digest([revision,event])],text);
   if(result.ok!==true||!result.data?.message_id)throw new Error('No notification receipt');
   return result.data.message_id;
@@ -113,12 +120,21 @@ export async function main(mode=process.argv[2]??'check') {
     }
   } else {
     const configs=JSON.parse(process.env.WATCH_CONFIG_JSON??'null');
-    if(!Array.isArray(configs)||configs.length!==2||new Set(configs.map(x=>x.id)).size!==2)throw new Error('Two distinct authenticated accounts required');
+    if(!Array.isArray(configs)||configs.length<1||configs.length>20||new Set(configs.map(x=>x.id)).size!==configs.length)throw new Error('Distinct authenticated accounts required');
     for(const config of configs) {
       try {
-        const rows=await readAccount(config);const change=transition(state,config.id,rows);
+        const allRows=await readAccount(config);
+        const select=rows=>config.monitor_ids?rows.filter(row=>config.monitor_ids.includes(row.id)):rows;
+        const rows=select(allRows);
+        const previous=structuredClone(state);
+        if(config.monitor_ids && previous.accounts[config.id]) {
+          const saved=previous.accounts[config.id];
+          for(const id of Object.keys(saved.items))if(!config.monitor_ids.includes(id)){delete saved.items[id];delete saved.missing[id];}
+        }
+        if(!rows.length)throw new Error('No selected components found');
+        const change=transition(previous,config.id,rows);
         if(change.events.length) {
-          const confirmation=await readAccount(config);
+          const confirmation=select(await readAccount(config));
           if(JSON.stringify(rows)!==JSON.stringify(confirmation))throw new Error('Observations disagree');
         }
         state=change.state;events.push(...change.events);count+=rows.length;
@@ -128,13 +144,13 @@ export async function main(mode=process.argv[2]??'check') {
     }
     if(state.watchdogAlarm) {events.push({kind:'云端调度恢复'});state.watchdogAlarm=false;}
     state.lastRun=now;state.failedAccounts=bad;
-    if(mode==='validate'&&bad===0)events.push({kind:'云端真实读取验证成功',accounts:2,components:count,detail:'已在云端读取真实组件；本条是TO DO测试回执，不是异常告警。'});
+    if(mode==='validate'&&bad===0)events.push({kind:'云端真实读取验证成功',accounts:configs.length,components:count,detail:'已在云端读取真实组件；本条是TO DO测试回执，不是异常告警。'});
   }
   for(const event of events)await notify(event,state.revision);
   state.revision+=events.length?1:0;
   // Only acknowledged transitions are written. Public storage contains ciphertext only.
   await writeFile(file,seal(state,secret),{mode:0o600});
-  console.log(JSON.stringify({mode,accounts:mode==='watchdog'?undefined:2,components:count,failedAccounts:bad,notifications:events.length,checkedAt:new Date(now).toISOString()}));
+  console.log(JSON.stringify({mode,accounts:mode==='watchdog'?undefined:JSON.parse(process.env.WATCH_CONFIG_JSON).length,components:count,failedAccounts:bad,notifications:events.length,checkedAt:new Date(now).toISOString()}));
   if(bad)process.exitCode=1;
 }
 
