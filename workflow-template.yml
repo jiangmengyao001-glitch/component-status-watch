@@ -1,0 +1,86 @@
+name: Component status watch
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Monitoring operation
+        type: choice
+        options: [validate, check, watchdog]
+        default: validate
+  schedule:
+    - cron: '*/5 * * * *'
+    - cron: '2,22,42 * * * *'
+permissions:
+  contents: write
+concurrency:
+  group: component-watch-state
+  cancel-in-progress: false
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test watcher.test.mjs
+      - name: Check secret configuration
+        env:
+          WATCH_CONFIG_JSON: ${{ secrets.WATCH_CONFIG_JSON }}
+          LARK_APP_ID: ${{ secrets.LARK_APP_ID }}
+          LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET }}
+          NOTIFICATION_CHAT_ID: ${{ secrets.NOTIFICATION_CHAT_ID }}
+          STATE_KEY: ${{ secrets.STATE_KEY }}
+        run: |
+          node - <<'JS'
+          for(const name of ['WATCH_CONFIG_JSON','LARK_APP_ID','LARK_APP_SECRET','NOTIFICATION_CHAT_ID','STATE_KEY']) {
+            if(!process.env[name]) throw new Error('Missing required secret: '+name);
+          }
+          JS
+      - name: Install official Feishu intelligent CLI
+        run: npm install --prefix "$RUNNER_TEMP/lark" @larksuite/cli@1.0.98
+      - name: Restore encrypted state
+        shell: bash
+        run: |
+          set +e
+          git ls-remote --exit-code origin refs/heads/monitor-state > "$RUNNER_TEMP/state-ref"
+          result=$?
+          set -e
+          if test "$result" = 0; then
+            git fetch origin monitor-state
+            git worktree add --detach .state origin/monitor-state
+          elif test "$result" = 2; then
+            git worktree add --detach .state HEAD
+            cd .state
+            git checkout --orphan monitor-state
+            git rm -rf .
+          else
+            exit "$result"
+          fi
+      - name: Read components and notify testing channel
+        env:
+          WATCH_CONFIG_JSON: ${{ secrets.WATCH_CONFIG_JSON }}
+          LARK_APP_ID: ${{ secrets.LARK_APP_ID }}
+          LARK_APP_SECRET: ${{ secrets.LARK_APP_SECRET }}
+          NOTIFICATION_CHAT_ID: ${{ secrets.NOTIFICATION_CHAT_ID }}
+          STATE_KEY: ${{ secrets.STATE_KEY }}
+          LARK_CLI: ${{ runner.temp }}/lark/node_modules/.bin/lark-cli
+          STATE_FILE: .state/state.enc
+          MODE: ${{ inputs.mode || (github.event.schedule == '2,22,42 * * * *' && 'watchdog' || 'check') }}
+          LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1'
+          LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1'
+        run: node watcher.mjs "$MODE"
+      - name: Persist acknowledged encrypted state
+        if: always()
+        run: |
+          if test -f .state/state.enc; then
+            cd .state
+            git config user.name 'component-watch'
+            git config user.email 'component-watch@users.noreply.github.com'
+            git add state.enc
+            if ! git diff --cached --quiet; then
+              git commit -m 'Update encrypted state'
+              git push origin HEAD:refs/heads/monitor-state
+            fi
+          fi
