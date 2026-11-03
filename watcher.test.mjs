@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
-import {transition,readAccount,seal,unseal} from './watcher.mjs';
+import {transition,readAccount,seal,unseal,formatEvent} from './watcher.mjs';
 const row=(status='有效')=>({id:'1234567890123456789',name:'Synthetic component',status});
 test('status change, no repeated alert and recovery',()=>{
   let {state}=transition({accounts:{}},'synthetic',[row()]);
@@ -34,4 +34,9 @@ test('pagination is complete and filtered lists fail closed',async()=>{
   assert.equal((await readAccount(config,fetcher)).length,2);assert.equal(calls,2);
   await assert.rejects(()=>readAccount({...config,url:config.url+'&status=1'},fetcher));
   await assert.rejects(()=>readAccount(config,async()=>({ok:true,json:async()=>({base_resp:{status_code:1}})})));
+});
+
+test('abnormal notification uses requested account and component fields',()=>{
+  assert.equal(formatEvent({kind:'组件状态变化',account:'synthetic-account',id:'synthetic-id',status:'异常'}),'老师，这个星图账户下落地页组件卡审，辛苦捞回：\n星图账户ID：synthetic-account\n组件ID：synthetic-id');
+  assert.ok(!formatEvent({kind:'组件状态变化',account:'synthetic-account',id:'synthetic-id',status:'有效'}).includes('辛苦捞回'));
 });
