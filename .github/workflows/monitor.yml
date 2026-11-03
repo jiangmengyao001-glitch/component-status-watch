@@ -8,8 +8,8 @@ on:
         options: [validate, check, watchdog]
         default: validate
   schedule:
-    - cron: '*/5 * * * *'
-    - cron: '2,22,42 * * * *'
+    - cron: '17 * * * *'
+    - cron: '47 * * * *'
 permissions:
   contents: write
 concurrency:
@@ -67,7 +67,7 @@ jobs:
           STATE_KEY: ${{ secrets.STATE_KEY }}
           LARK_CLI: ${{ runner.temp }}/lark/node_modules/.bin/lark-cli
           STATE_FILE: .state/state.enc
-          MODE: ${{ inputs.mode || (github.event.schedule == '2,22,42 * * * *' && 'watchdog' || 'check') }}
+          MODE: ${{ inputs.mode || (github.event.schedule == '47 * * * *' && 'watchdog' || 'check') }}
           LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1'
           LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1'
         run: node watcher.mjs "$MODE"
