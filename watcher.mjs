@@ -94,15 +94,16 @@ async function configureBot() {
   await cli(['config','init','--app-id',process.env.LARK_APP_ID,'--app-secret-stdin','--brand','feishu'],process.env.LARK_APP_SECRET,false);
 }
 
-export function formatEvent(event) {
-  if(event.id && (event.kind==='首次发现异常'||event.kind==='组件状态变化') && event.status!=='有效') {
-    return `老师，这个星图账户下落地页组件卡审，辛苦捞回：\n星图账户ID：${event.account}\n组件ID：${event.id}`;
+export function formatEvent(event, mentionId=null) {
+  const mention=mentionId && /^ou_[a-zA-Z0-9]+$/.test(mentionId)?`<at user_id="${mentionId}"></at>\n`:'';
+  if(event.id && (((event.kind==='首次发现异常'||event.kind==='组件状态变化') && event.status!=='有效') || event.kind==='两次完整查询均未找到组件')) {
+    return mention+`老师，这个星图账户下落地页组件卡审，辛苦捞回：\n星图账户ID：${event.account}\n组件ID：${event.id}`;
   }
-  return '【星图组件监测·TO DO测试】\n'+Object.entries(event).map(([k,v])=>`${k}：${v}`).join('\n')+'\n'+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'（北京时间）';
+  return (['读取或登录故障','云端监测中断'].includes(event.kind)?mention:'')+'【星图组件监测】\n'+Object.entries(event).map(([k,v])=>`${k}：${v}`).join('\n')+'\n'+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'（北京时间）';
 }
 
 async function notify(event, revision) {
-  const text=formatEvent(event);
+  const text=formatEvent(event,process.env.NOTIFICATION_MENTION_ID || JSON.parse(process.env.WATCH_CONFIG_JSON??'[]')[0]?.notification_mention_id);
   const result=await cli(['im','+messages-send','--chat-id',process.env.NOTIFICATION_CHAT_ID,'--as','bot','--text','-','--idempotency-key',digest([revision,event])],text);
   if(result.ok!==true||!result.data?.message_id)throw new Error('No notification receipt');
   return result.data.message_id;
