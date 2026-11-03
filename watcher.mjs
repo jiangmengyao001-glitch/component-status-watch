@@ -108,8 +108,8 @@ export async function main(mode=process.argv[2]??'check') {
   await configureBot();
   const now=Date.now();const events=[];let bad=0;let count=0;
   if(mode==='watchdog') {
-    if(!state.lastRun||now-state.lastRun>30*60*1000) {
-      if(!state.watchdogAlarm) {events.push({kind:'云端监测中断',detail:'超过30分钟没有运行回执，请检查定时任务。'});state.watchdogAlarm=true;}
+    if(!state.lastRun||now-state.lastRun>150*60*1000) {
+      if(!state.watchdogAlarm) {events.push({kind:'云端监测中断',detail:'超过150分钟没有运行回执，请检查定时任务。'});state.watchdogAlarm=true;}
     }
   } else {
     const configs=JSON.parse(process.env.WATCH_CONFIG_JSON??'null');
