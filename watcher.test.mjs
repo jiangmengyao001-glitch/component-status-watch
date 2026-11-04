@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
-import {transition,readAccount,seal,unseal,formatEvent} from './watcher.mjs';
+import {transition,readAccount,seal,unseal,formatEvent,shouldNotify} from './watcher.mjs';
 const row=(status='有效')=>({id:'1234567890123456789',name:'Synthetic component',status});
 test('status change, no repeated alert and recovery',()=>{
   let {state}=transition({accounts:{}},'synthetic',[row()]);
@@ -46,4 +46,11 @@ test('abnormal alerts include a real mention, recovery stays quiet for mentions'
  assert.ok(formatEvent(event,'ou_synthetic').startsWith('<at user_id="ou_synthetic"></at>\n老师'));
  assert.ok(!formatEvent({...event,status:'有效'},'ou_synthetic').includes('<at'));
  assert.ok(formatEvent({...event,kind:'两次完整查询均未找到组件',status:'有效'},'ou_synthetic').includes('<at'));
+});
+
+test('business group receives component anomalies only',()=>{
+ for(const kind of ['读取或登录故障','读取恢复','云端监测中断','云端调度恢复','云端真实读取验证成功'])assert.equal(shouldNotify({kind}),false);
+ assert.equal(shouldNotify({kind:'组件状态变化',id:'synthetic',status:'有效'}),false);
+ assert.equal(shouldNotify({kind:'组件状态变化',id:'synthetic',status:'异常'}),true);
+ assert.equal(shouldNotify({kind:'两次完整查询均未找到组件',id:'synthetic',status:'有效'}),true);
 });
