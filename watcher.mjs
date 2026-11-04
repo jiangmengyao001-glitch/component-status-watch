@@ -102,6 +102,13 @@ export function formatEvent(event, mentionId=null) {
   return (['读取或登录故障','云端监测中断'].includes(event.kind)?mention:'')+'【星图组件监测】\n'+Object.entries(event).map(([k,v])=>`${k}：${v}`).join('\n')+'\n'+new Date().toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'})+'（北京时间）';
 }
 
+export function shouldNotify(event) {
+  return Boolean(event.id) && (
+    (['首次发现异常','组件状态变化'].includes(event.kind) && event.status!=='有效') ||
+    event.kind==='两次完整查询均未找到组件'
+  );
+}
+
 async function notify(event, revision) {
   const text=formatEvent(event,process.env.NOTIFICATION_MENTION_ID || JSON.parse(process.env.WATCH_CONFIG_JSON??'[]')[0]?.notification_mention_id);
   const result=await cli(['im','+messages-send','--chat-id',process.env.NOTIFICATION_CHAT_ID,'--as','bot','--text','-','--idempotency-key',digest([revision,event])],text);
@@ -147,11 +154,12 @@ export async function main(mode=process.argv[2]??'check') {
     state.lastRun=now;state.failedAccounts=bad;
     if(mode==='validate'&&bad===0)events.push({kind:'云端真实读取验证成功',accounts:configs.length,components:count,detail:'已在云端读取真实组件；本条是TO DO测试回执，不是异常告警。'});
   }
-  for(const event of events)await notify(event,state.revision);
+  const notifications=events.filter(shouldNotify);
+  for(const event of notifications)await notify(event,state.revision);
   state.revision+=events.length?1:0;
   // Only acknowledged transitions are written. Public storage contains ciphertext only.
   await writeFile(file,seal(state,secret),{mode:0o600});
-  console.log(JSON.stringify({mode,accounts:mode==='watchdog'?undefined:JSON.parse(process.env.WATCH_CONFIG_JSON).length,components:count,failedAccounts:bad,notifications:events.length,checkedAt:new Date(now).toISOString()}));
+  console.log(JSON.stringify({mode,accounts:mode==='watchdog'?undefined:JSON.parse(process.env.WATCH_CONFIG_JSON).length,components:count,failedAccounts:bad,notifications:notifications.length,checkedAt:new Date(now).toISOString()}));
   if(bad)process.exitCode=1;
 }
 
